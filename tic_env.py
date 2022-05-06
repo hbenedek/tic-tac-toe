@@ -33,6 +33,7 @@ class TictactoeEnv:
         self.player2value = {'X': 1, 'O': -1}
         self.num_step = 0
         self.current_player = 'X' # By default, player 'X' goes first
+        self.other_player = str(({'X', 'O'} - set(self.current_player)).pop())
 
     def check_valid(self, position):
         ''' Check whether the current action is valid or not
@@ -58,13 +59,17 @@ class TictactoeEnv:
         elif type(position) is not tuple:
             position = tuple(position)
         if self.grid[position] != 0:
-            raise ValueError('There is already a chess on position {}.'.format(position))
+            # I changed this part in order to train the Deep Agent, not sure if this is the way to go though...
+            self.end = True
+            self.winner = self.other_player
+            return self.grid.copy(), self.end, self.winner
 
         # place a chess on the position
         self.grid[position] = self.player2value[self.current_player]
         # update
         self.num_step += 1
         self.current_player = 'X' if self.num_step % 2 == 0 else  'O'
+        self.other_player = str(({'X', 'O'} - set(self.current_player)).pop())
         # check whether the game ends or not
         self.checkEnd()
 
