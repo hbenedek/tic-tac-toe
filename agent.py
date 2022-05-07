@@ -90,6 +90,7 @@ class DeepAgent(Agent):
         self.memory_r = torch.empty((self.buffer))
         self.memory_s1 = torch.empty((self.buffer, 18))
         self.memory_used = 0
+        self.losses = []
 
     def reset_memory(self):
         self.memory_s = torch.empty((self.buffer, 18))
@@ -111,7 +112,8 @@ class DeepAgent(Agent):
         idx = torch.randperm(self.memory_used)[:self.batch].long()
         output = self.DQN.forward(self.memory_s[idx])
         y_pred = output.gather(1, self.memory_a[idx].long().view((self.batch,1))).view(-1)
-        y_target = self.memory_r[idx] + self.DQN.forward(self.memory_s1[idx]).max(dim=1).values
+        reward_indicator = (~self.memory_r[idx].abs().bool()).int() #invert rewards {0 -> 1, {-1,1} -> 0}
+        y_target = self.gamma * (self.memory_r[idx] + reward_indicator * self.DQN.forward(self.memory_s1[idx]).max(dim=1).values)
         return y_pred, y_target
 
     def act(self, grid):
@@ -128,7 +130,6 @@ class DeepAgent(Agent):
 
     def play_game(self, agent, env, i):
         grid, end, __  = env.observe()
-        states = []
         if i % 2 == 0:
             self.player = 'X'
             agent.player = 'O'
@@ -145,8 +146,7 @@ class DeepAgent(Agent):
 
                 reward = env.reward(self.player)
                 self.update_memory(grid.copy(),reward)
-            states.append(grid.copy())
-        return winner, states
+        return winner
 
     
     def learn(self, agent, N=20000):
@@ -158,15 +158,18 @@ class DeepAgent(Agent):
 
             # train phase
             if i % self.update_target == 0:
-                y_pred, y_target = self.sample_learning_data()
-
                 # zero the parameter gradients
                 self.DQN.optimizer.zero_grad()
-
+ 
+                y_pred, y_target = self.sample_learning_data()
                 # forward + backward + optimize
                 loss = self.DQN.criterion(y_pred, y_target)
                 loss.backward()
                 self.DQN.optimizer.step()
+                self.losses.append(loss.detach().numpy())
+
+                # for now I am reseting memory after every training phase
+                self.reset_memory()
 
             # save results
             if winner == self.player:
@@ -180,14 +183,14 @@ class DeepAgent(Agent):
               
 
 class DeepQNetwork(nn.Module):
-    def __init__(self):
+    def __init__(self, alpha=10e-5, delta=1, hidden_neurons=128):
         super(DeepQNetwork, self).__init__()
-        self.linear1 = nn.Linear(18, 128)
-        self.linear2 = nn.Linear(128, 128)
-        self.linear3 = nn.Linear(128, 9)
+        self.linear1 = nn.Linear(18, hidden_neurons)
+        self.linear2 = nn.Linear(hidden_neurons, hidden_neurons)
+        self.linear3 = nn.Linear(hidden_neurons, 9)
 
-        self.optimizer = torch.optim.Adam(self.parameters(), lr=10e-5)
-        self.criterion = nn.HuberLoss(delta=1)
+        self.optimizer = torch.optim.Adam(self.parameters(), lr=alpha)
+        self.criterion = nn.HuberLoss(delta=delta)
 
     def forward(self, x):
         x = x.float()
