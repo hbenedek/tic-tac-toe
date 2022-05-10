@@ -102,3 +102,6 @@ def grid_to_tensor(grid, player='X'):
         grid[grid == -1] = 0
         tensor[:,:,1] = grid
     return torch.tensor(tensor, dtype=float).flatten()
+
+def tensor_to_grid(tensor, player='X'):
+    return (tensor[:,:,0] + tensor[:,:,1] * (- 1)).numpy() if player == 'X' else (tensor[:,:,0] * (- 1) + tensor[:,:,1]).numpy()
