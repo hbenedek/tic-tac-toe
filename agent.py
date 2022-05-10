@@ -82,6 +82,7 @@ class DeepAgent(Agent):
         self.update_target = update_target
         self.counter = 0
         self.DQN = DeepQNetwork()
+        self.target_network = DeepQNetwork()
         self.memory = Memory(self.buffer)
         self.last_state = None
         self.last_action = None
@@ -94,8 +95,9 @@ class DeepAgent(Agent):
             action = self.randomMove(grid)
             self.last_action = tuple_to_int(action)
         else:
-            action = self.DQN(grid_to_tensor(grid)).argmax().item()
-            self.last_action = action
+            with torch.no_grad():
+                action = self.DQN(grid_to_tensor(grid)).argmax().item()
+                self.last_action = action
 
         self.last_state = grid_to_tensor(grid)  
         return action
@@ -128,26 +130,31 @@ class DeepAgent(Agent):
             env.reset()
             winner = self.play_game(agent, env, i) 
 
-            # train phase
-            if i % self.update_target == 0:
-                # zero the parameter gradientsS
-                self.DQN.optimizer.zero_grad()
+            if self.memory.memory_used > self.batch:
+                # train phase
 
                 # sample mini-batch from memory
-                state, action, reward, state1 = self.memory.sample(self.batch)
+                state, action, reward, next_state = self.memory.sample(self.batch)
+
                 # calculate "prediction" Q values
                 output = self.DQN.forward(state)
                 y_pred = output.gather(1, action.long().view((self.batch, 1))).view(-1)
                 
                 # calculate "target" Q-values from Q-Learning update rule
                 reward_indicator = (~reward.abs().bool()).int() #invert rewards {0 -> 1, {-1,1} -> 0}
-                y_target = self.gamma * (reward + reward_indicator * self.DQN.forward(state1).max(dim=1).values)
+                y_target = self.gamma * (reward + reward_indicator * self.target_network.forward(next_state).max(dim=1).values)
 
                 # forward + backward + optimize
                 loss = self.DQN.criterion(y_pred, y_target)
+                self.DQN.optimizer.zero_grad()
                 loss.backward()
                 self.DQN.optimizer.step()
                 self.losses.append(loss.detach().numpy())
+
+            # update target network
+            if i % self.update_target == 0:
+                self.target_network.load_state_dict(self.DQN.state_dict())
+
 
             # save results
             if winner == self.player:
