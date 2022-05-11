@@ -117,9 +117,12 @@ class DeepAgent(Agent):
             else:
                 move = agent.act(grid)
                 grid, end, winner = env.step(move, print_grid=False) 
-
-                reward = env.reward(self.player)
-                self.memory.update(self.last_state, self.last_action, reward, grid.copy())
+                if not end:
+                    reward = env.reward(self.player)
+                    self.memory.update(self.last_state, self.last_action, reward, grid.copy())
+                
+        reward = env.reward(self.player)
+        self.memory.update(self.last_state, self.last_action, reward, grid.copy())
         return winner
 
     
@@ -142,7 +145,7 @@ class DeepAgent(Agent):
                 
                 # calculate "target" Q-values from Q-Learning update rule
                 reward_indicator = (~reward.abs().bool()).int() #invert rewards {0 -> 1, {-1,1} -> 0}
-                y_target = self.gamma * (reward + reward_indicator * self.target_network.forward(next_state).max(dim=1).values)
+                y_target = self.gamma * (reward + reward_indicator * self.target_network(next_state).max(dim=1).values)
 
                 # forward + backward + optimize
                 loss = self.DQN.criterion(y_pred, y_target)
@@ -189,11 +192,7 @@ class Memory:
     def __init__(self, size):
         self.size = size
         self.memory_used = 0
-        self.memory_s = torch.empty((self.size, 18))
-        self.memory_a = torch.empty((self.size))
-        self.memory_r = torch.empty((self.size))
-        self.memory_s1 = torch.empty((self.size, 18))
-        self.position = 0
+        self.reset_memory()
 
     def update(self, last_state, last_action, reward, grid):
         if isinstance(last_action, int) and isinstance(last_state, torch.Tensor):
