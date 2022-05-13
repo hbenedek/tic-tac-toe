@@ -30,8 +30,9 @@ def play_game(agent1, agent2, env, i, train=True):
                 reward = env.reward(agent1.player)
                 agent1.updateQ(grid.copy(),reward)
                 
-    reward = env.reward(agent1.player)
-    agent1.updateQ(grid.copy(),reward)
+    if train:
+        reward = env.reward(agent1.player)
+        agent1.updateQ(grid.copy(),reward)
     return winner, agent1, agent2
 
 def simulate(agent1, agent2, N=500, train=True, bar=True):
