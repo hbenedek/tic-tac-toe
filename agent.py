@@ -102,17 +102,17 @@ class DeepAgent(Agent):
                 action = self.DQN(grid_to_tensor(grid)).argmax().item()
                 self.last_action = action
 
-        self.last_state = grid_to_tensor(grid)  
+        self.last_state = grid_to_tensor(grid.copy())  
         return action
 
     def play_game(self, agent, env, i, train=True):
         grid, end, __  = env.observe()
-        if i % 2 == 0:
-            self.player = 'X'
-            agent.player = 'O'
-        else:
-            self.player = 'O'
-            agent.player = 'X'
+        #if i % 2 == 0:
+        self.player = 'X'
+        agent.player = 'O'
+        #else:
+        #    self.player = 'O'
+        #    agent.player = 'X'
         while end == False:
             if env.current_player == self.player:
                 move = self.act(grid) 
@@ -123,9 +123,11 @@ class DeepAgent(Agent):
                 if train and not end:
                     reward = env.reward(self.player)
                     self.memory.update(self.last_state, self.last_action, reward, grid.copy())
+                    self.optimize_model(i)
         if train: 
             reward = env.reward(self.player)
             self.memory.update(self.last_state, self.last_action, reward, grid.copy())
+            self.optimize_model(i)
         return winner
 
     def play_n_games(self, agent, env, episodes, train=True):
@@ -154,6 +156,35 @@ class DeepAgent(Agent):
         return (N_win - N_loose) / episodes 
 
     
+    def optimize_model(self, i):
+        if self.memory.memory_used > self.batch:
+            # train phase
+
+            # sample mini-batch from memory
+            state, action, reward, next_state = self.memory.sample(self.batch)
+            
+            self.DQN.optimizer.zero_grad()
+            # calculate "prediction" Q values
+            output = self.DQN(state)
+            y_pred = output.gather(1, action.long().view((self.batch, 1))).view(-1)
+            
+            # calculate "target" Q-values from Q-Learning update rule
+            mask = (~reward.abs().bool()).int() #invert rewards {0 -> 1, {-1,1} -> 0}
+            y_target =  reward + self.gamma * mask * self.target_network(next_state).max(dim=1)[0].detach()
+
+            # forward + backward + optimize
+            loss = self.DQN.criterion(y_pred, y_target)
+            loss.backward()
+            for param in self.DQN.parameters():
+                param.grad.data.clamp_(-1, 1)
+            self.DQN.optimizer.step()
+            self.losses.append(loss.detach().numpy())
+
+            # update target network
+            if i % self.update_target == 0:
+                self.target_network.load_state_dict(self.DQN.state_dict())
+
+
     def learn(self, agent, N=20000, test_phase=250):
         history = []
         env = TictactoeEnv()
@@ -161,35 +192,7 @@ class DeepAgent(Agent):
         rand_agent = OptimalPlayer(1)
         for i in tqdm(range(2, N+2)):
             env.reset()
-            winner = self.play_game(agent, env, i) 
-
-            if self.memory.memory_used > self.batch:
-                # train phase
-
-                # sample mini-batch from memory
-                state, action, reward, next_state = self.memory.sample(self.batch)
-
-                # calculate "prediction" Q values
-                output = self.DQN.forward(state)
-                y_pred = output.gather(1, action.long().view((self.batch, 1))).view(-1)
-                
-                # calculate "target" Q-values from Q-Learning update rule
-                reward_indicator = (~reward.abs().bool()).int() #invert rewards {0 -> 1, {-1,1} -> 0}
-                y_target = self.gamma * (reward + reward_indicator * self.target_network(next_state).max(dim=1).values)
-
-                # forward + backward + optimize
-                loss = self.DQN.criterion(y_pred, y_target)
-                self.DQN.optimizer.zero_grad()
-                loss.backward()
-                self.DQN.optimizer.step()
-                self.losses.append(loss.detach().numpy())
-
-            # update target network
-            if i % self.update_target == 0:
-                self.target_network.load_state_dict(self.DQN.state_dict())
-
-            if i % test_phase == 0:
-                self.simulate_test_phase(opt_agent, rand_agent, env)
+            winner = self.play_game(agent, env, i, train=True) 
 
             # save results
             if winner == self.player:
@@ -198,6 +201,9 @@ class DeepAgent(Agent):
                 history.append(-1)
             else:
                 history.append(0)
+
+            if i % test_phase == 0:
+                self.simulate_test_phase(opt_agent, rand_agent, env)
 
         return history
 
@@ -209,14 +215,14 @@ class DeepAgent(Agent):
 
 
 class DeepQNetwork(nn.Module):
-    def __init__(self, alpha=10e-5, delta=1, hidden_neurons=128):
+    def __init__(self, alpha=5*1e-4, delta=1, hidden_neurons=128):
         super(DeepQNetwork, self).__init__()
         self.linear1 = nn.Linear(18, hidden_neurons)
         self.linear2 = nn.Linear(hidden_neurons, hidden_neurons)
         self.linear3 = nn.Linear(hidden_neurons, 9)
 
         self.optimizer = torch.optim.Adam(self.parameters(), lr=alpha)
-        self.criterion = nn.HuberLoss(delta=delta)
+        self.criterion = nn.SmoothL1Loss()
 
     def forward(self, x):
         x = x.float()
@@ -229,7 +235,6 @@ class DeepQNetwork(nn.Module):
 class Memory:
     def __init__(self, size):
         self.size = size
-        self.memory_used = 0
         self.reset_memory()
 
     def update(self, last_state, last_action, reward, grid):
@@ -239,18 +244,19 @@ class Memory:
             self.memory_s[self.position] = last_state
             self.memory_a[self.position] = last_action
             self.memory_r[self.position] = reward
-            self.memory_s1[self.position] = grid_to_tensor(grid)
+            self.memory_ns[self.position] = grid_to_tensor(grid)
             self.position = (self.position + 1) % self.size
 
     def sample(self, batch):
         idx = torch.randperm(self.memory_used)[:batch].long()
-        return self.memory_s[idx], self.memory_a[idx], self.memory_r[idx], self.memory_s1[idx]
+        return self.memory_s[idx], self.memory_a[idx], self.memory_r[idx], self.memory_ns[idx]
 
     def reset_memory(self):
         self.memory_s = torch.empty((self.size, 18))
         self.memory_a = torch.empty((self.size))
         self.memory_r = torch.empty((self.size))
-        self.memory_s1 = torch.empty((self.size, 18))
+        self.memory_ns = torch.empty((self.size, 18))
         self.position = 0
+        self.memory_used = 0
 
    

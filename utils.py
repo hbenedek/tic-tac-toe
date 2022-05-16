@@ -93,17 +93,18 @@ def learning_evolution(agent1, agent2, N=80):
 def grid_to_tensor(grid, player='X'):
     tensor = np.zeros((3,3,2))
     grid1 = grid.copy()
+    grid2 = grid.copy()
     if player == 'X':
         grid1[grid == -1] = 0
         tensor[:,:,0] = grid1
 
-        grid[grid == 1] = 0
+        grid2[grid == 1] = 0
         tensor[:,:,1] = np.abs(grid)
     else: 
         grid1[grid == 1] = 0
         tensor[:,:,0] = np.abs(grid1)
 
-        grid[grid == -1] = 0
+        grid2[grid == -1] = 0
         tensor[:,:,1] = grid
     return torch.tensor(tensor, dtype=float).flatten()
 
