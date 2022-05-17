@@ -99,14 +99,17 @@ def grid_to_tensor(grid, player='X'):
         tensor[:,:,0] = grid1
 
         grid2[grid == 1] = 0
-        tensor[:,:,1] = np.abs(grid)
+        tensor[:,:,1] = np.abs(grid2)
     else: 
         grid1[grid == 1] = 0
         tensor[:,:,0] = np.abs(grid1)
 
         grid2[grid == -1] = 0
-        tensor[:,:,1] = grid
+        tensor[:,:,1] = grid2
     return torch.tensor(tensor, dtype=float).flatten()
 
 def tensor_to_grid(tensor, player='X'):
     return (tensor[:,:,0] + tensor[:,:,1] * (- 1)).numpy() if player == 'X' else (tensor[:,:,0] * (- 1) + tensor[:,:,1]).numpy()
+
+def swap_positions(tensor):
+     return torch.index_select(tensor, 2, torch.LongTensor([1,0]))

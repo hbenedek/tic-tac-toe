@@ -8,6 +8,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import random
+import copy
 
 class Agent:
     def __init__(self, player):
@@ -30,6 +31,9 @@ class Agent:
         """ Chose a random move from the available options. """
         avail = self.empty(grid)
         return avail[random.randint(0, len(avail)-1)]
+
+    def copy(self):
+        return copy.deepcopy(self)
 
     @abstractclassmethod
     def act(self):
@@ -99,20 +103,20 @@ class DeepAgent(Agent):
             self.last_action = tuple_to_int(action)
         else:
             with torch.no_grad():
-                action = self.DQN(grid_to_tensor(grid)).argmax().item()
+                action = self.DQN(grid_to_tensor(grid.copy(), self.player)).argmax().item()
                 self.last_action = action
 
-        self.last_state = grid_to_tensor(grid.copy())  
+        self.last_state = grid_to_tensor(grid.copy(), self.player)  
         return action
 
     def play_game(self, agent, env, i, train=True):
         grid, end, __  = env.observe()
-        #if i % 2 == 0:
-        self.player = 'X'
-        agent.player = 'O'
-        #else:
-        #    self.player = 'O'
-        #    agent.player = 'X'
+        if i % 2 == 0:
+            self.player = 'X'
+            agent.player = 'O'
+        else:
+            self.player = 'O'
+            agent.player = 'X'
         while end == False:
             if env.current_player == self.player:
                 move = self.act(grid) 
@@ -122,11 +126,11 @@ class DeepAgent(Agent):
                 grid, end, winner = env.step(move, print_grid=False) 
                 if train and not end:
                     reward = env.reward(self.player)
-                    self.memory.update(self.last_state, self.last_action, reward, grid.copy())
+                    self.memory.update(self.last_state, self.last_action, reward, grid_to_tensor(grid.copy(), self.player))
                     self.optimize_model(i)
         if train: 
             reward = env.reward(self.player)
-            self.memory.update(self.last_state, self.last_action, reward, grid.copy())
+            self.memory.update(self.last_state, self.last_action, reward, grid_to_tensor(grid.copy(), self.player))
             self.optimize_model(i)
         return winner
 
@@ -214,6 +218,48 @@ class DeepAgent(Agent):
         self.m_rands.append(m_rand)
 
 
+    def learn_by_self_practice(self, N=20000, test_phase=250):
+        env = TictactoeEnv()
+        opt_agent = OptimalPlayer(0)
+        rand_agent = OptimalPlayer(1)
+        agent_copy = self.copy()
+        for i in tqdm(range(2, N+2)):
+            env.reset()
+            self.self_practice(env, i, agent_copy, train=True) 
+
+            if i % test_phase == 0:
+                self.simulate_test_phase(opt_agent, rand_agent, env)
+
+    def self_practice(self, env, i, agent_copy, train=True):
+        grid, end, __  = env.observe()
+        self.player = 'X'
+        agent_copy.player = 'O'
+        while end == False:
+            if env.current_player == self.player:
+                move = self.act(grid) 
+                grid, end, winner = env.step(move, print_grid=False)
+                if train and not end:
+                    reward = env.reward(agent_copy.player)
+                    self.memory.update(agent_copy.last_state, agent_copy.last_action, reward, grid_to_tensor(grid.copy(), agent_copy.player))
+                    self.optimize_model(i)
+            else:
+                move = agent_copy.act(grid)
+                grid, end, winner = env.step(move, print_grid=False) 
+                if train and not end:
+                    reward = env.reward(self.player)
+                    self.memory.update(self.last_state, self.last_action, reward,  grid_to_tensor(grid.copy(), self.player))
+                    self.optimize_model(i)
+
+        if train:
+            reward = env.reward(self.player)
+            self.memory.update(self.last_state, self.last_action, reward, grid_to_tensor(grid.copy(), self.player))
+
+            reward = env.reward(agent_copy.player)
+            self.memory.update(agent_copy.last_state, agent_copy.last_action, reward, grid_to_tensor(grid.copy(), agent_copy.player))
+
+            self.optimize_model(i)
+
+
 class DeepQNetwork(nn.Module):
     def __init__(self, alpha=5*1e-4, delta=1, hidden_neurons=128):
         super(DeepQNetwork, self).__init__()
@@ -237,14 +283,14 @@ class Memory:
         self.size = size
         self.reset_memory()
 
-    def update(self, last_state, last_action, reward, grid):
+    def update(self, last_state, last_action, reward, next_state):
         if isinstance(last_action, int) and isinstance(last_state, torch.Tensor):
             if self.memory_used < self.size:
                     self.memory_used += 1
             self.memory_s[self.position] = last_state
             self.memory_a[self.position] = last_action
             self.memory_r[self.position] = reward
-            self.memory_ns[self.position] = grid_to_tensor(grid)
+            self.memory_ns[self.position] = next_state
             self.position = (self.position + 1) % self.size
 
     def sample(self, batch):
