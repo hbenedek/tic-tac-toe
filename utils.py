@@ -33,9 +33,9 @@ def play_game(agent1, agent2, env, i, train=True):
     if train:
         reward = env.reward(agent1.player)
         agent1.updateQ(grid.copy(),reward)
-    return winner, agent1, agent2
+    return winner
 
-def simulate(agent1, agent2, N=500, train=True, bar=True):
+def simulate(agent1, agent2, N=500, train=True, bar=True, self_practice=False):
     env = TictactoeEnv()
     N_win = 0
     N_loose = 0
@@ -53,26 +53,29 @@ def simulate(agent1, agent2, N=500, train=True, bar=True):
         env.reset()
         agent1.counter += 1
         # simulation
-       
-        winner, agent1, agent2 = play_game(agent1, agent2, env, i, train)
 
-        # save results
-        if winner == agent1.player:
-            N_win += 1
-            history.append(1)
-        elif winner == agent2.player:
-            N_loose += 1
-            history.append(-1)
+        if self_practice:
+            self_play_game(agent1, agent2, env, train)
         else:
-            history.append(0)
+            winner = play_game(agent1, agent2, env, i, train)
+
+            # save results
+            if winner == agent1.player:
+                N_win += 1
+                history.append(1)
+            elif winner == agent2.player:
+                N_loose += 1
+                history.append(-1)
+            else:
+                history.append(0)
     
     if not train:
         agent1.epsilon = temp_eps
         agent1.explore = temp_explore
            
-    return history, (N_win - N_loose) / N, agent1
+    return history, (N_win - N_loose) / N
 
-def learning_evolution(agent1, agent2, N=80):
+def learning_evolution(agent1, agent2, N=80, self_practice=False):
     m_opts = []
     m_rands = []
     agent_opt = OptimalPlayer(epsilon = 0)
@@ -80,15 +83,50 @@ def learning_evolution(agent1, agent2, N=80):
     
     for i in tqdm(range(N)):
         # training phase
-        _, __, agent1 = simulate(agent1, agent2, N=250, train=True, bar=False)
+        _, __ = simulate(agent1, agent2, N=250, train=True, bar=False, self_practice=self_practice)
         # testing phase
-        _, m_opt, agent1 = simulate(agent1, agent_opt, N=500, train=False, bar=False)
-        _, m_rand, agent1 = simulate(agent1, agent_rand, N=500, train=False, bar=False)
+        _, m_opt = simulate(agent1, agent_opt, N=500, train=False, bar=False)
+        _, m_rand = simulate(agent1, agent_rand, N=500, train=False, bar=False)
         #save results
         m_opts.append(m_opt)
         m_rands.append(m_rand)
            
     return m_opts, m_rands
+
+def self_play_game(agent1, agent2, env, train=True):
+    #agent1 and agent2 both are effectively the same agent. We keep this naming to be conistent with previous questions
+    grid, end, __  = env.observe()
+    first_move = True
+    
+    while end == False:
+        if env.current_player == 'X':
+            move = agent1.act(grid)
+            agent1_last_action = agent1.last_action
+            agent1_last_state = agent1.last_state
+            grid, end, winner = env.step(move, print_grid=False)            
+
+            if train and not first_move:
+                reward = env.reward('O') #Reward of agent 2
+                agent1.updateQ_self(grid.copy(),reward, agent2_last_state, agent2_last_action)
+                
+            first_move = False
+                
+        else:
+            move = agent2.act(grid)
+            agent2_last_action = agent2.last_action
+            agent2_last_state = agent2.last_state
+            grid, end, winner = env.step(move, print_grid=False)            
+            
+            if train:
+                reward = env.reward('X') #Reward of agent 1
+                agent2.updateQ_self(grid.copy(),reward, agent1_last_state, agent1_last_action)
+                
+    if winner == 'X' or winner is None:
+        reward = env.reward('X')
+        agent2.updateQ_self(grid.copy(),reward, agent1_last_state, agent1_last_action)
+    if winner == 'O':
+        reward = env.reward('O') 
+        agent1.updateQ_self(grid.copy(),reward, agent2_last_state, agent2_last_action)
 
 def grid_to_tensor(grid, player='X'):
     tensor = np.zeros((3,3,2))
@@ -113,3 +151,5 @@ def tensor_to_grid(tensor, player='X'):
 
 def swap_positions(tensor):
      return torch.index_select(tensor, 2, torch.LongTensor([1,0]))
+
+

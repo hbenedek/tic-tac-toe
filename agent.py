@@ -73,6 +73,10 @@ class QPlayer(Agent):
     def updateQ(self, grid, reward):
         future_estimate = max([self.Qvalues[str(grid)][tuple_to_int(pos)] for pos in self.empty(grid)], default=0)
         self.Qvalues[self.last_state][self.last_action] += self.alpha * (reward + self.gamma * future_estimate - self.Qvalues[self.last_state][self.last_action]) 
+
+    def updateQ_self(self, grid, reward, s, a):
+        future_estimate = max([self.Qvalues[str(grid)][tuple_to_int(pos)] for pos in self.empty(grid)], default=0)
+        self.Qvalues[s][a] += self.alpha * (reward + self.gamma * future_estimate - self.Qvalues[s][a])
             
     def decreasing_exploration(self, e_min, e_max, n_star, n):
         return max(e_min, e_max * (1 - n/n_star)) 
@@ -230,7 +234,7 @@ class DeepAgent(Agent):
             if i % test_phase == 0:
                 self.simulate_test_phase(opt_agent, rand_agent, env)
 
-    def self_practice(self, env, i, agent_copy, train=True):
+    def self_practice2(self, env, i, agent_copy, train=True):
         grid, end, __  = env.observe()
         self.player = 'X'
         agent_copy.player = 'O'
@@ -258,6 +262,39 @@ class DeepAgent(Agent):
             self.memory.update(agent_copy.last_state, agent_copy.last_action, reward, grid_to_tensor(grid.copy(), agent_copy.player))
 
             self.optimize_model(i)
+
+    def self_practice(self, env, i, agent_copy, train=True):
+        #agent1 and agent2 both are effectively the same agent. We keep this naming to be conistent with previous questions
+        grid, end, __  = env.observe()
+        first_move = True
+        self.player = 'X'
+        agent_copy.player = 'O'
+        while end == False:
+            if env.current_player == 'X':
+                move = self.act(grid)
+                grid, end, winner = env.step(move, print_grid=False)   
+                         
+                if train and not first_move:
+                    reward = env.reward('O') #Reward of agent 2
+                    self.memory.update(agent_copy.last_state, agent_copy.last_action, reward, grid_to_tensor(grid.copy(), 'O'))
+                    self.optimize_model(i) 
+                first_move = False
+            else:
+                move =agent_copy.act(grid)            
+                grid, end, winner = env.step(move, print_grid=False)            
+                
+                if train:
+                    reward = env.reward('X') #Reward of agent 1
+                    self.memory.update(self.last_state, self.last_action, reward, grid_to_tensor(grid.copy(), 'X'))
+                    self.optimize_model(i)            
+                    
+        if winner == 'X' or winner is None:
+            reward = env.reward('X')
+            self.memory.update(agent_copy.last_state, agent_copy.last_action, reward, grid_to_tensor(grid.copy(), agent_copy.player))
+        if winner == 'O':
+            reward = env.reward('O') 
+            self.memory.update(self.last_state, self.last_action, reward, grid_to_tensor(grid.copy(), self.player))
+        self.optimize_model(i)
 
 
 class DeepQNetwork(nn.Module):
