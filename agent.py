@@ -131,11 +131,11 @@ class DeepAgent(Agent):
                 if train and not end:
                     reward = env.reward(self.player)
                     self.memory.update(self.last_state, self.last_action, reward, grid_to_tensor(grid.copy(), self.player))
-                    self.optimize_model(i)
+                    self.optimize_model()
         if train: 
             reward = env.reward(self.player)
             self.memory.update(self.last_state, self.last_action, reward, grid_to_tensor(grid.copy(), self.player))
-            self.optimize_model(i)
+            self.optimize_model()
         return winner
 
     def play_n_games(self, agent, env, episodes, train=True):
@@ -164,7 +164,7 @@ class DeepAgent(Agent):
         return (N_win - N_loose) / episodes 
 
     
-    def optimize_model(self, i):
+    def optimize_model(self):
         if self.memory.memory_used > self.batch:
             # train phase
 
@@ -188,27 +188,37 @@ class DeepAgent(Agent):
             self.DQN.optimizer.step()
             self.losses.append(loss.detach().numpy())
 
-            # update target network
-            if i % self.update_target == 0:
-                self.target_network.load_state_dict(self.DQN.state_dict())
 
-
-    def learn(self, agent, N=20000, test_phase=250):
+    def learn(self, agent, N=20000, test_phase=250, self_practice=False):
         history = []
         env = TictactoeEnv()
         opt_agent = OptimalPlayer(0)
         rand_agent = OptimalPlayer(1)
-        for i in tqdm(range(2, N+2)):
+        agent_copy = self.copy()
+        for i in tqdm(range(0, N)):
             env.reset()
-            winner = self.play_game(agent, env, i, train=True) 
-
-            # save results
-            if winner == self.player:
-                history.append(1)
-            elif winner == agent.player:
-                history.append(-1)
+            if self_practice:
+                self.self_practice(env, agent_copy, train=True) 
+                
+                # update target network
+                if i % self.update_target == 0:
+                    self.target_network.load_state_dict(self.DQN.state_dict())
+                    agent_copy.target_network.load_state_dict(self.DQN.state_dict())         
+          
             else:
-                history.append(0)
+                winner = self.play_game(agent, env, i, train=True) 
+
+                # update target network
+                if i % self.update_target == 0:
+                    self.target_network.load_state_dict(self.DQN.state_dict())
+            
+                # save results
+                if winner == self.player:
+                    history.append(1)
+                elif winner == agent.player:
+                    history.append(-1)
+                else:
+                    history.append(0)
 
             if i % test_phase == 0:
                 self.simulate_test_phase(opt_agent, rand_agent, env)
@@ -221,50 +231,7 @@ class DeepAgent(Agent):
         self.m_opts.append(m_opt)
         self.m_rands.append(m_rand)
 
-
-    def learn_by_self_practice(self, N=20000, test_phase=250):
-        env = TictactoeEnv()
-        opt_agent = OptimalPlayer(0)
-        rand_agent = OptimalPlayer(1)
-        agent_copy = self.copy()
-        for i in tqdm(range(2, N+2)):
-            env.reset()
-            self.self_practice(env, i, agent_copy, train=True) 
-
-            if i % test_phase == 0:
-                self.simulate_test_phase(opt_agent, rand_agent, env)
-
-    def self_practice2(self, env, i, agent_copy, train=True):
-        grid, end, __  = env.observe()
-        self.player = 'X'
-        agent_copy.player = 'O'
-        while end == False:
-            if env.current_player == self.player:
-                move = self.act(grid) 
-                grid, end, winner = env.step(move, print_grid=False)
-                if train and not end:
-                    reward = env.reward(agent_copy.player)
-                    self.memory.update(agent_copy.last_state, agent_copy.last_action, reward, grid_to_tensor(grid.copy(), agent_copy.player))
-                    self.optimize_model(i)
-            else:
-                move = agent_copy.act(grid)
-                grid, end, winner = env.step(move, print_grid=False) 
-                if train and not end:
-                    reward = env.reward(self.player)
-                    self.memory.update(self.last_state, self.last_action, reward,  grid_to_tensor(grid.copy(), self.player))
-                    self.optimize_model(i)
-
-        if train:
-            reward = env.reward(self.player)
-            self.memory.update(self.last_state, self.last_action, reward, grid_to_tensor(grid.copy(), self.player))
-
-            reward = env.reward(agent_copy.player)
-            self.memory.update(agent_copy.last_state, agent_copy.last_action, reward, grid_to_tensor(grid.copy(), agent_copy.player))
-
-            self.optimize_model(i)
-
-    def self_practice(self, env, i, agent_copy, train=True):
-        #agent1 and agent2 both are effectively the same agent. We keep this naming to be conistent with previous questions
+    def self_practice(self, env, agent_copy, train=True):
         grid, end, __  = env.observe()
         first_move = True
         self.player = 'X'
@@ -273,29 +240,33 @@ class DeepAgent(Agent):
             if env.current_player == 'X':
                 move = self.act(grid)
                 grid, end, winner = env.step(move, print_grid=False)   
-                         
+
                 if train and not first_move:
                     reward = env.reward('O') #Reward of agent 2
                     self.memory.update(agent_copy.last_state, agent_copy.last_action, reward, grid_to_tensor(grid.copy(), 'O'))
-                    self.optimize_model(i) 
+                    self.optimize_model() 
+                    agent_copy.DQN.load_state_dict(self.DQN.state_dict())
                 first_move = False
             else:
-                move =agent_copy.act(grid)            
+                move = agent_copy.act(grid)            
                 grid, end, winner = env.step(move, print_grid=False)            
                 
                 if train:
                     reward = env.reward('X') #Reward of agent 1
                     self.memory.update(self.last_state, self.last_action, reward, grid_to_tensor(grid.copy(), 'X'))
-                    self.optimize_model(i)            
+                    self.optimize_model()       
+                    agent_copy.DQN.load_state_dict(self.DQN.state_dict())     
                     
         if winner == 'X' or winner is None:
             reward = env.reward('X')
-            self.memory.update(agent_copy.last_state, agent_copy.last_action, reward, grid_to_tensor(grid.copy(), agent_copy.player))
+            self.memory.update(agent_copy.last_state, agent_copy.last_action, reward, grid_to_tensor(grid.copy(), 'X'))
         if winner == 'O':
             reward = env.reward('O') 
-            self.memory.update(self.last_state, self.last_action, reward, grid_to_tensor(grid.copy(), self.player))
-        self.optimize_model(i)
+            self.memory.update(self.last_state, self.last_action, reward, grid_to_tensor(grid.copy(), 'O'))
+        self.optimize_model()
+        agent_copy.DQN.load_state_dict(self.DQN.state_dict())
 
+        
 
 class DeepQNetwork(nn.Module):
     def __init__(self, alpha=5*1e-4, delta=1, hidden_neurons=128):

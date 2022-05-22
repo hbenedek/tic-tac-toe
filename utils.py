@@ -78,8 +78,8 @@ def simulate(agent1, agent2, N=500, train=True, bar=True, self_practice=False):
 def learning_evolution(agent1, agent2, N=80, self_practice=False):
     m_opts = []
     m_rands = []
-    agent_opt = OptimalPlayer(epsilon = 0)
-    agent_rand = OptimalPlayer(epsilon = 1)
+    agent_opt = OptimalPlayer(epsilon=0)
+    agent_rand = OptimalPlayer(epsilon=1)
     
     for i in tqdm(range(N)):
         # training phase
