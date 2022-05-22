@@ -150,7 +150,7 @@ class DeepAgent(Agent):
         N_loose = 0 
         for j in range(episodes):
             env.reset()
-            winner = self.play_game(agent, env, j, train=False)
+            winner = self.play_game(agent, env, 0, train=False)
 
             if winner == self.player:
                 N_win += 1
@@ -198,7 +198,7 @@ class DeepAgent(Agent):
         for i in tqdm(range(0, N)):
             env.reset()
             if self_practice:
-                self.self_practice(env, agent_copy, train=True) 
+                winner = self.self_practice(env, agent_copy, train=True) 
                 
                 # update target network
                 if i % self.update_target == 0:
@@ -212,13 +212,13 @@ class DeepAgent(Agent):
                 if i % self.update_target == 0:
                     self.target_network.load_state_dict(self.DQN.state_dict())
             
-                # save results
-                if winner == self.player:
-                    history.append(1)
-                elif winner == agent.player:
-                    history.append(-1)
-                else:
-                    history.append(0)
+            # save results
+            if winner == self.player:
+                history.append(1)
+            elif winner == agent.player:
+                history.append(-1)
+            else:
+                history.append(0)
 
             if i % test_phase == 0:
                 self.simulate_test_phase(opt_agent, rand_agent, env)
@@ -240,9 +240,8 @@ class DeepAgent(Agent):
             if env.current_player == 'X':
                 move = self.act(grid)
                 grid, end, winner = env.step(move, print_grid=False)   
-
                 if train and not first_move:
-                    reward = env.reward('O') #Reward of agent 2
+                    reward = env.reward('O') 
                     self.memory.update(agent_copy.last_state, agent_copy.last_action, reward, grid_to_tensor(grid.copy(), 'O'))
                     self.optimize_model() 
                     agent_copy.DQN.load_state_dict(self.DQN.state_dict())
@@ -250,23 +249,22 @@ class DeepAgent(Agent):
             else:
                 move = agent_copy.act(grid)            
                 grid, end, winner = env.step(move, print_grid=False)            
-                
                 if train:
-                    reward = env.reward('X') #Reward of agent 1
+                    reward = env.reward('X') 
                     self.memory.update(self.last_state, self.last_action, reward, grid_to_tensor(grid.copy(), 'X'))
                     self.optimize_model()       
                     agent_copy.DQN.load_state_dict(self.DQN.state_dict())     
                     
         if winner == 'X' or winner is None:
             reward = env.reward('X')
-            self.memory.update(agent_copy.last_state, agent_copy.last_action, reward, grid_to_tensor(grid.copy(), 'X'))
+            self.memory.update(self.last_state, self.last_action, reward, grid_to_tensor(grid.copy(), 'X'))
+
         if winner == 'O':
             reward = env.reward('O') 
-            self.memory.update(self.last_state, self.last_action, reward, grid_to_tensor(grid.copy(), 'O'))
+            self.memory.update(agent_copy.last_state, agent_copy.last_action, reward, grid_to_tensor(grid.copy(), 'O'))
         self.optimize_model()
         agent_copy.DQN.load_state_dict(self.DQN.state_dict())
-
-        
+        return winner
 
 class DeepQNetwork(nn.Module):
     def __init__(self, alpha=5*1e-4, delta=1, hidden_neurons=128):
