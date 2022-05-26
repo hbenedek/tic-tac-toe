@@ -152,4 +152,19 @@ def tensor_to_grid(tensor, player='X'):
 def swap_positions(tensor):
      return torch.index_select(tensor, 2, torch.LongTensor([1,0]))
 
+def get_training_time(opts, rands):
+    max_opt = (max(opts) + 1) * 0.8 - 1
+    max_rand = max(rands) * 0.8
+    for i, metric in enumerate(opts):
+        if metric > max_opt:
+            opt_idx = i
+            break
+
+    for i, metric in enumerate(rands):
+        if metric > max_rand:
+            rand_idx = i
+            break
+
+    return opt_idx, rand_idx
+
 
