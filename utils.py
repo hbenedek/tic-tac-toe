@@ -6,12 +6,15 @@ from tic_env import TictactoeEnv, OptimalPlayer
 from tqdm import tqdm
 
 def tuple_to_int(action):
+    """ Converts the tuple encoding of a board position to integer value. """
     return action[0] * 3 + action[1]
 
 def int_to_tuple(position):
+    """ Converts the integer encoding of a board position to tuple representation. """
     return (int(position/3), position % 3)
 
 def play_game(agent1, agent2, env, i, train=True):
+    """ Simulates a Tic Tac Toe game between two Agents/OPtimalPlayers. """
     grid, end, __  = env.observe()
     if i % 2 == 0:
         agent1.player = 'X'
@@ -36,6 +39,7 @@ def play_game(agent1, agent2, env, i, train=True):
     return winner
 
 def simulate(agent1, agent2, N=500, train=True, bar=True, self_practice=False):
+    """ Simulates N number of games against other agent or self_practice depending on boolean flag. """
     env = TictactoeEnv()
     N_win = 0
     N_loose = 0
@@ -76,6 +80,11 @@ def simulate(agent1, agent2, N=500, train=True, bar=True, self_practice=False):
     return history, (N_win - N_loose) / N
 
 def learning_evolution(agent1, agent2, N=80, self_practice=False):
+    """ 
+    Main entry point of learning N defines the number of iterations in learning, one iteration consists of a learning phase 
+    (250 games against other agent or learning with self practice)
+    and a testing phase (500 game against Opt(0) and 500 games against Opt(1)).
+    """
     m_opts = []
     m_rands = []
     agent_opt = OptimalPlayer(epsilon=0)
@@ -94,6 +103,7 @@ def learning_evolution(agent1, agent2, N=80, self_practice=False):
     return m_opts, m_rands
 
 def self_play_game(agent1, agent2, env, train=True):
+    """ Implementation of game simulation with self practice. """
     #agent1 and agent2 both are effectively the same agent. We keep this naming to be conistent with previous questions
     grid, end, __  = env.observe()
     first_move = True
@@ -129,6 +139,7 @@ def self_play_game(agent1, agent2, env, train=True):
         agent1.updateQ_self(grid.copy(),reward, agent2_last_state, agent2_last_action)
 
 def grid_to_tensor(grid, player='X'):
+    """ Converts grid to torch tensor. """
     tensor = np.zeros((3,3,2))
     grid1 = grid.copy()
     grid2 = grid.copy()
@@ -147,12 +158,17 @@ def grid_to_tensor(grid, player='X'):
     return torch.tensor(tensor, dtype=float).flatten()
 
 def tensor_to_grid(tensor, player='X'):
+    """ Converts torch tensor to grid. """
     return (tensor[:,:,0] + tensor[:,:,1] * (- 1)).numpy() if player == 'X' else (tensor[:,:,0] * (- 1) + tensor[:,:,1]).numpy()
 
 def swap_positions(tensor):
-     return torch.index_select(tensor, 2, torch.LongTensor([1,0]))
+    """ Given a tensor representation of the board, changes the encoding of 'X' and 'O'."""
+    return torch.index_select(tensor, 2, torch.LongTensor([1,0]))
 
 def get_training_time(opts, rands):
+    """ 
+    Given the results of a learning evolution, it returns the time required to achieve 80% of maximum performance.
+    """
     max_opt = (max(opts) + 1) * 0.8 - 1
     max_rand = max(rands) * 0.8
     for i, metric in enumerate(opts):
